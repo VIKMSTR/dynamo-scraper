@@ -4,3 +4,5 @@ vendorlist
 .env
 .DS_Store
 .idea/vcs.xml
+dynamo-nextmatch-scraper
+dynamo-nextmatch-scraper.exe

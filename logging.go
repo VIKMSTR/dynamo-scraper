@@ -10,6 +10,10 @@ import (
 var log = logrus.New()
 
 func init() {
+	customFormatter := new(logrus.TextFormatter)
+	customFormatter.TimestampFormat = "2006-01-02 15:04:05"
+	log.SetFormatter(customFormatter)
+	customFormatter.FullTimestamp = true
 	loggingToFile := os.Getenv("SCRAPING_LOG_TO_FILE")
 	if loggingToFile == "" {
 		loggingToFile = "false"
@@ -19,7 +23,7 @@ func init() {
 		loglevel = "info"
 	}
 	if strings.ToLower(loggingToFile) == "true" {
-		file, err := os.OpenFile("scraper.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		file, err := os.OpenFile("scraper.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
 		if err == nil {
 			log.Out = file
 		} else {

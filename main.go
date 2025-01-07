@@ -13,15 +13,17 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/joho/godotenv"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/text/encoding/charmap"
 )
 
+type Match struct {
+	HomeTeam     string
+	AwayTeam     string
+	DateAndPlace string
+	Time         string
+}
+
 func main() {
-	customFormatter := new(logrus.TextFormatter)
-	customFormatter.TimestampFormat = "2006-01-02 15:04:05"
-	log.SetFormatter(customFormatter)
-	customFormatter.FullTimestamp = true
 	godotenv.Load()
 	zivyObrazKey := os.Getenv("ZIVYOBRAZ_KEY")
 	skipZivyObraz := os.Getenv("SKIP_ZIVYOBRAZ")
@@ -30,27 +32,60 @@ func main() {
 	}
 	client, err := createClient()
 	logErrorIfPresentAndExit(err)
-	req, _ := http.NewRequest("GET", "https://hcdynamo.cz/zapasy.asp", strings.NewReader(""))
-	//matchesPage, loadErr := client.Get("https://hcdynamo.cz/zapasy.asp")
-	// req.Header.Add("Accept-Charset", "utf-8")
+
+	pageData := getSourcePage("https://hcdynamo.cz/zapasy.asp", client)
+	log.Debugln("Got the page for parsing, converting to parsable document")
+	match := parseNextMatch(pageData)
+	log.Info(match)
+
+	if skipZivyObraz == "" {
+		publishToZivyObraz(match, zivyObrazKey, client)
+	} else {
+		log.Info("Variable SKIP_ZIVYOBRAZ is set, skipping publishing to zivyobraz.cz")
+	}
+	log.Info("Done!")
+}
+
+func publishToZivyObraz(match Match, zivyObrazKey string, client *http.Client) {
+	log.Info("Publishing to zivyobraz")
+	req, pubReqErr := http.NewRequest("GET", "https://in.zivyobraz.eu", nil)
+	logErrorIfPresentAndExit(pubReqErr)
+	q := req.URL.Query()
+	q.Add("import_key", zivyObrazKey)
+	q.Add("next_match_home_team", match.HomeTeam)
+	q.Add("next_match_away_team", match.AwayTeam)
+	q.Add("next_match_teams_full_string", fmt.Sprintf("%s - %s", match.HomeTeam, match.AwayTeam))
+	q.Add("next_match_date_place", match.DateAndPlace)
+	q.Add("next_match_time", match.Time)
+	req.URL.RawQuery = q.Encode()
+	res, publishResErr := client.Do(req)
+	logErrorIfPresentAndExit(publishResErr)
+	if res.StatusCode != 200 {
+		log.Fatalf("Publishing to zivyobraz failed, got errorcode: %d", res.StatusCode)
+	}
+}
+
+func getSourcePage(url string, client *http.Client) []byte {
+	req, _ := http.NewRequest("GET", url, strings.NewReader(""))
 	matchesPage, loadErr := client.Do(req)
-	//os.Create("page.html")
-	body, _ := io.ReadAll(matchesPage.Body)
-	// os.WriteFile("page.html", body, 0644)
 	logErrorIfPresentAndExit(loadErr)
-	//converting to Windows1250, because thats the encoding that ASP.NET server uses
+	body, readErr := io.ReadAll(matchesPage.Body)
+	logErrorIfPresentAndExit(readErr)
 	dec := charmap.Windows1250.NewDecoder()
-	output, _ := dec.Bytes(body)
+	output, encodingConversionErr := dec.Bytes(body)
+	logErrorIfPresentAndExit(encodingConversionErr)
 	defer matchesPage.Body.Close()
 	if matchesPage.StatusCode != 200 {
 		log.Error(fmt.Sprintf("Requesting the pages failed, got errorcode: %d", matchesPage.StatusCode))
 	}
-	log.Debugln("Got the page for parsing, converting to parsable document")
-	doc, parseErr := goquery.NewDocumentFromReader(bytes.NewReader(output))
+	return output
+}
+
+func parseNextMatch(pageData []byte) Match {
+	doc, parseErr := goquery.NewDocumentFromReader(bytes.NewReader(pageData))
 	logErrorIfPresentAndExit(parseErr)
 	game := doc.Find(".subpage .game").First()
 	log.Debug(game.Html())
-
 	dateAndPlace := ""
 	homeTeam := ""
 	awayTeam := ""
@@ -71,34 +106,9 @@ func main() {
 				}
 			})
 		}
-
 	})
 	time := game.Find(".score_time").First().Text()
-
-	log.Infof("Home team: %s, Away team: %s, DateAndPlace: %s, Time: %s", homeTeam, awayTeam, dateAndPlace, time)
-	//game.ChildrenFiltered(".game_detail").First()
-
-	if skipZivyObraz == "" {
-		log.Info("Publishing to zivyobraz")
-		req, pubReqErr := http.NewRequest("GET", "https://in.zivyobraz.eu", nil)
-		logErrorIfPresentAndExit(pubReqErr)
-		q := req.URL.Query()
-		q.Add("import_key", zivyObrazKey)
-		q.Add("next_match_home_team", homeTeam)
-		q.Add("next_match_away_team", awayTeam)
-		q.Add("next_match_teams_full_string", fmt.Sprintf("%s - %s", homeTeam, awayTeam))
-		q.Add("next_match_date_place", dateAndPlace)
-		q.Add("next_match_time", time)
-		req.URL.RawQuery = q.Encode()
-		res, publishResErr := client.Do(req)
-		logErrorIfPresentAndExit(publishResErr)
-		if res.StatusCode != 200 {
-			log.Fatalf("Publishing to zivyobraz failed, got errorcode: %d", res.StatusCode)
-		}
-	} else {
-		log.Info("Variable SKIP_ZIVYOBRAZ is set, skipping publishing to zivyobraz.cz")
-	}
-	log.Info("Done!")
+	return Match{HomeTeam: homeTeam, AwayTeam: awayTeam, DateAndPlace: dateAndPlace, Time: time}
 }
 
 func createClient() (*http.Client, error) {
@@ -124,4 +134,8 @@ func logErrorIfPresentAndExit(err error) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func (m Match) String() string {
+	return fmt.Sprintf("Home team: %s, Away team: %s, DateAndPlace: %s, Time: %s", m.HomeTeam, m.AwayTeam, m.DateAndPlace, m.Time)
 }
