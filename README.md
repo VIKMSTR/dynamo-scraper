@@ -12,6 +12,18 @@ If you set `SKIP_ZIVYOBRAZ` variable, the publishing to ZO will be skipped.
 
 Also you can customize log level(`DEBUG|INFO|WARNING|ERROR|FATAL`)
 
+## Running
+
+**Run directly:**
+
+```make run```
+
+**Or compile it**
+
+```make release```
+
+and run binary for your OS & architecture from created `bin` subdirectory.
+
 ## Sent ZivyObraz values
 
 * `next_match_home_team` - home team
