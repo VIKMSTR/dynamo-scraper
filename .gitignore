@@ -1,0 +1,6 @@
+bin
+dist
+vendorlist
+.env
+.DS_Store
+.idea/vcs.xml
