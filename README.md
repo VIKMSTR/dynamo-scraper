@@ -6,9 +6,11 @@
 
 ## Configuration
 
-rename .env.example to .env and set the proper zivyobraz import key in  ZIVYOBRAZ_KEY variable
-If you set SKIP_ZIVYOBRAZ variable, the publishing to ZO will be skipped.
-Also you can customize log level(DEBUG|INFO|WARNING|ERROR|FATAL)
+Rename .env.example to .env and set the proper zivyobraz import key in  `ZIVYOBRAZ_KEY` variable
+
+If you set `SKIP_ZIVYOBRAZ` variable, the publishing to ZO will be skipped.
+
+Also you can customize log level(`DEBUG|INFO|WARNING|ERROR|FATAL`)
 
 ## Sent ZivyObraz values
 
