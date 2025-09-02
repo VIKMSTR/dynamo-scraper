@@ -13,14 +13,15 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/joho/godotenv"
-	"golang.org/x/text/encoding/charmap"
 )
 
 type Match struct {
-	HomeTeam     string
-	AwayTeam     string
-	DateAndPlace string
-	Time         string
+	HomeTeam      string
+	AwayTeam      string
+	DateAndTime   string
+	Round         string
+	Competition   string
+	DateTimeStamp string
 }
 
 func main() {
@@ -33,7 +34,7 @@ func main() {
 	client, err := createClient()
 	logErrorIfPresentAndExit(err)
 
-	pageData := getSourcePage("https://hcdynamo.cz/zapasy.asp", client)
+	pageData := getSourcePage("https://hcdynamo.cz/matches/MUZ", client)
 	log.Debugln("Got the page for parsing, converting to parsable document")
 	match := parseNextMatch(pageData)
 	log.Info(match)
@@ -55,8 +56,9 @@ func publishToZivyObraz(match Match, zivyObrazKey string, client *http.Client) {
 	q.Add("next_match_home_team", match.HomeTeam)
 	q.Add("next_match_away_team", match.AwayTeam)
 	q.Add("next_match_teams_full_string", fmt.Sprintf("%s - %s", match.HomeTeam, match.AwayTeam))
-	q.Add("next_match_date_place", match.DateAndPlace)
-	q.Add("next_match_time", match.Time)
+	q.Add("next_match_date_place", match.DateAndTime)
+	q.Add("next_match_round", match.Round)
+	q.Add("next_match_competition", match.Competition)
 	req.URL.RawQuery = q.Encode()
 	res, publishResErr := client.Do(req)
 	logErrorIfPresentAndExit(publishResErr)
@@ -71,44 +73,66 @@ func getSourcePage(url string, client *http.Client) []byte {
 	logErrorIfPresentAndExit(loadErr)
 	body, readErr := io.ReadAll(matchesPage.Body)
 	logErrorIfPresentAndExit(readErr)
-	dec := charmap.Windows1250.NewDecoder()
-	output, encodingConversionErr := dec.Bytes(body)
-	logErrorIfPresentAndExit(encodingConversionErr)
 	defer matchesPage.Body.Close()
 	if matchesPage.StatusCode != 200 {
 		log.Error(fmt.Sprintf("Requesting the pages failed, got errorcode: %d", matchesPage.StatusCode))
 	}
-	return output
+	return body
 }
 
 func parseNextMatch(pageData []byte) Match {
 	doc, parseErr := goquery.NewDocumentFromReader(bytes.NewReader(pageData))
 	logErrorIfPresentAndExit(parseErr)
-	game := doc.Find(".subpage .game").First()
-	log.Debug(game.Html())
+	log.Debug(doc.Html())
 	dateAndPlace := ""
 	homeTeam := ""
 	awayTeam := ""
-	game.ChildrenFiltered(".game_detail").Children().Each(func(i int, selection *goquery.Selection) {
-		if i == 0 {
-			content, _ := selection.Html()
-			dateAndPlace = strings.TrimSpace(content)
-			log.Debugf("Date and place string: %s", dateAndPlace)
+	round := ""
+	competition := ""
+	dateTimeStamp := ""
+	matchSection := doc.Find(`section[aria-label="Nejbližší zápas"]`)
+	if matchSection.Length() == 0 {
+		logErrorIfPresentAndExit(fmt.Errorf("sekce s nejbližším zápasem nebyla nalezena"))
+	}
+
+	matchItem := matchSection.Find("li").First()
+	if matchItem.Length() == 0 {
+		logErrorIfPresentAndExit(fmt.Errorf("žádný zápas nebyl nalezen"))
+	}
+
+	firstDiv := matchItem.Find("div").First()
+	spans := firstDiv.Find("span")
+	if spans.Length() >= 2 {
+		round = strings.TrimSpace(spans.Eq(0).Text())
+		competition = strings.TrimSpace(spans.Eq(1).Text())
+	}
+
+	timeElement := matchItem.Find("time")
+	if timeElement.Length() > 0 {
+		if datetime, exists := timeElement.Attr("datetime"); exists {
+			dateTimeStamp = datetime
 		}
-		if i == 1 {
-			selection.Children().Each(func(i int, teams *goquery.Selection) {
-				log.Debugf("Team [%d]: %s", i, teams.Text())
-				if i == 0 {
-					homeTeam = teams.Text()
-				}
-				if i == 1 {
-					awayTeam = teams.Text()
-				}
-			})
+		dateAndPlace = strings.TrimSpace(timeElement.Text())
+	}
+
+	// Extrahuje týmy z alt atributů obrázků
+	var teams []string
+	matchItem.Find("img[alt]").Each(func(i int, img *goquery.Selection) {
+		if alt, exists := img.Attr("alt"); exists {
+			// Vyčistí alt text od "Logo " prefixu
+			teamName := strings.TrimPrefix(alt, "Logo ")
+			teamName = strings.TrimSpace(teamName)
+			if teamName != "" {
+				teams = append(teams, teamName)
+			}
 		}
 	})
-	time := game.Find(".score_time").First().Text()
-	return Match{HomeTeam: homeTeam, AwayTeam: awayTeam, DateAndPlace: dateAndPlace, Time: time}
+
+	if len(teams) >= 2 {
+		homeTeam = teams[0]
+		awayTeam = teams[1]
+	}
+	return Match{HomeTeam: homeTeam, AwayTeam: awayTeam, DateAndTime: dateAndPlace, Round: round, Competition: competition, DateTimeStamp: dateTimeStamp}
 }
 
 func createClient() (*http.Client, error) {
@@ -137,5 +161,5 @@ func logErrorIfPresentAndExit(err error) {
 }
 
 func (m Match) String() string {
-	return fmt.Sprintf("Home team: %s, Away team: %s, DateAndPlace: %s, Time: %s", m.HomeTeam, m.AwayTeam, m.DateAndPlace, m.Time)
+	return fmt.Sprintf("Round: %s, Competition: %s, Home team: %s, Away team: %s, DateTimeStamp %s, TimeStamp: %s", m.Round, m.Competition, m.HomeTeam, m.AwayTeam, m.DateAndTime, m.DateTimeStamp)
 }

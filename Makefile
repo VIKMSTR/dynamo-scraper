@@ -1,5 +1,5 @@
 BINARY=dynamo-nextmatch-scraper
-VERSION=0.1
+VERSION=0.2
 
 default: build
 
